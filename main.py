@@ -1,62 +1,60 @@
-"""Entry for the make.fun news-image-20261124 bounty.
+"""make.fun news-image-20261124 entry point.
 
-The front page itself is a finished 1024x1024 PNG (frontpage.png) that
-sums up Tuesday 24 November 2026 in one page. This program's job is
-simply to deliver that image, intact, as entry.png in the output
-directory the harness provides.
+The image is already finished and committed as frontpage.png beside
+this file. All this module does is hand that exact file to the grader:
+it checks the file really is a PNG under the 1 MiB cap, copies it to
+the output directory, and confirms the copy is byte for byte the same.
+It never touches the network and never changes a pixel.
 """
+import hashlib, os, sys
 
-import hashlib
-import os
-import sys
-
-_PNG_MAGIC = bytes((0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
-_SIZE_LIMIT = 1048576
+IMAGE_FILE = "frontpage.png"
+OUTPUT_FILE = "entry.png"
+SIZE_LIMIT = 1048576
+HEADER = bytes((0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
 
 
-class FrontPageExporter:
-    """Loads frontpage.png, validates it, and exports a verified copy."""
+def die(reason):
+    sys.stderr.write("entry failed: " + reason + "\n")
+    sys.exit(1)
 
-    def __init__(self):
-        here = os.path.dirname(os.path.realpath(__file__))
-        self._source = os.path.join(here, "frontpage.png")
-        out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-        self._target = os.path.join(out_dir, "entry.png")
-        self._payload = b""
 
-    def _load(self):
-        try:
-            with open(self._source, "rb") as stream:
-                self._payload = stream.read()
-        except OSError as exc:
-            self._fail(f"cannot read {self._source}: {exc}")
-        if self._payload[:8] != _PNG_MAGIC:
-            self._fail(f"{self._source} does not start with the PNG signature")
-        if len(self._payload) > _SIZE_LIMIT:
-            self._fail(
-                f"{self._source} is {len(self._payload)} bytes, "
-                f"over the {_SIZE_LIMIT} byte limit"
-            )
+def load_image():
+    base = os.path.dirname(os.path.realpath(__file__))
+    found = os.path.join(base, IMAGE_FILE)
+    if not os.path.isfile(found):
+        die("missing " + IMAGE_FILE + " beside this program")
+    with open(found, "rb") as stream:
+        payload = stream.read()
+    if len(payload) > SIZE_LIMIT:
+        die(IMAGE_FILE + " is over the 1 MiB size limit")
+    if payload[0:8] != HEADER:
+        die(IMAGE_FILE + " does not begin with a PNG header")
+    return payload
 
-    def _fail(self, message):
-        print(f"error: {message}", file=sys.stderr)
-        raise SystemExit(1)
 
-    def export(self):
-        self._load()
-        try:
-            os.makedirs(os.path.dirname(self._target) or ".", exist_ok=True)
-            with open(self._target, "wb") as stream:
-                stream.write(self._payload)
-            with open(self._target, "rb") as stream:
-                roundtrip = stream.read()
-        except OSError as exc:
-            self._fail(f"cannot write {self._target}: {exc}")
-        if roundtrip != self._payload:
-            self._fail(f"verification failed: {self._target} differs from source")
-        checksum = hashlib.sha256(self._payload).hexdigest()
-        print(f"{self._target}: {len(self._payload)} bytes, sha256 {checksum}")
+def save_image(payload):
+    folder = os.getenv("MAKEFUN_OUTPUT_DIR", "/output") or "/output"
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError:
+        die("cannot create output folder " + folder)
+    target = os.path.join(folder, OUTPUT_FILE)
+    with open(target, "wb") as stream:
+        stream.write(payload)
+    with open(target, "rb") as stream:
+        if stream.read() != payload:
+            die("output copy differs from " + IMAGE_FILE)
+    return target
+
+
+def run():
+    payload = load_image()
+    target = save_image(payload)
+    checksum = hashlib.sha256(payload).hexdigest()
+    sys.stdout.write(target + ": " + str(len(payload)) +
+                     " bytes, sha256 " + checksum + "\n")
 
 
 if __name__ == "__main__":
-    FrontPageExporter().export()
+    run()
